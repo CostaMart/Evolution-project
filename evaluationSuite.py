@@ -11,6 +11,7 @@ import json
 from colorama import Fore, Style
 
 
+
 """grahp maker prompt:
 "You are an expert at creating Knowledge Graphs. "
             "Consider the following ontology. \n"
@@ -49,8 +50,7 @@ class LLMClient(ABC):
 class Evaluator:
     relationships = ["problem and possible cause"]
     labels = [  
-                {"mouse 1": "the first mouse connected to the system"},
-                {"mouse 2": "mouse second mouse connected to the system"},
+              
                 {"software": "any software component mentioned"},
                 {"hardware": "any hardware component that doens't have any better specific label"},
                 {"problems":"any problem in the system of which the sentence is talking about"},
@@ -131,33 +131,26 @@ class Evaluator:
                 s.add(elem)
         return list(s)
 
-    def compute_relation_precision_recall(self, prediction:str, reference:str, model_name:str = "llama-3.2-90b-vision-preview"):
+    def compute_concept_coverage(self, prediction:str, reference:str, model_name:str = "llama-3.2-90b-vision-preview"):
         ontology = Ontology(
             labels= self.labels,
             relationships=self.relationships,
         )     
         groq = GroqClient(model = model_name, temperature=0, top_p= 1)
-        return self.__relation_precision_recall(prediction= prediction, reference= reference, ontology= ontology, llm_client= groq)
+        return self.__relation_concept_coverage(prediction= prediction, reference= reference, ontology= ontology, llm_client= groq)
         
     
-    def __relation_precision_recall(self, prediction:str, reference:str, ontology:Ontology, llm_client:LLMClient)-> set[float, float]:
+    def __relation_concept_coverage(self, prediction:str, reference:str, ontology:Ontology, llm_client:LLMClient)-> set[float, float]:
         system_prompt = """You are working as an evaluator. I will provide you with a set of nodes representing entities and their relationships. 
-        For each pair evaluate if the relationship described in the 'relationship' field can be found in the given sentence, you can answer yes even if the relation is similar and not exactly the same. Keep in mind then some entities might have slightly different names but still referring to the same entity.
+        For each pair evaluate if the relationship described in the 'relationship' field can be found in the given sentence, you can answer yes even if the relation is similar and not exactly the same. 
+        Keep in mind then some entities might have slightly different names but still referring to the same entity.
         you MUST Only respond with one word: 'yes' or 'no' use the following format to respond:
         ["yes", "no"]
         The sentence will be separated from the rest by '##'."""
         
         graph_maker = GraphMaker(ontology=ontology, llm_client=llm_client)
         try:    
-            # precision
-            relations = graph_maker.from_text(prediction)
-            entities_precision = [entity.dict() for entity in relations]
-            results_josn = llm_client.generate(system_message=system_prompt, user_message=f"entites and relations: {entities_precision} ## sentence: {reference}")
-            ic(results_josn)
-            result = ic(json.loads(results_josn))
-            precision_numerator = [yes for yes in result if yes == "yes"]
-            # end precision
-
+        
             # recall
             relations = graph_maker.from_text(reference)
             entities_recall = [entity.json() for entity in relations]
@@ -167,7 +160,7 @@ class Evaluator:
             # end recall
       
         
-            return len(precision_numerator)/len(entities_precision), len(recall_numerator)/len(entities_recall)
+            return len(recall_numerator)/len(entities_recall)
         
         except ZeroDivisionError:
             print(Fore.RED + f"0 relationships identified in one of the sentences" + Style.RESET_ALL)
@@ -176,7 +169,7 @@ class Evaluator:
     
 
 if __name__== "__main__":
-    
-    P, R = Evaluator().compute_relation_precision_recall("The admission-manager service is not responding to requests from the api-gateway, resulting in an error when trying to create a patient. The api-gateway logs indicate that the admission-manager endpoint is not responding, and the admission-manager logs show a 'pod unavailable' error", reference="the Api gateway cannot start the creation of a new patient because the admission-manager is unavailable")
-    ic(P,R)
+    CC = Evaluator().compute_concept_coverage("the cat on the table is instead a monkey that's why i cannot touch it, you have to know that im allergic to monkeys", 
+    reference="The database of the service doesn't contain the right tables for the resources, so the service cannot retrieve them correctly causing the problem")
+    ic(CC)
     

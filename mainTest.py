@@ -7,6 +7,7 @@ import os
 import pandas
 from icecream import ic
 import re
+import json
 
 logs = pandas.read_csv("pod_logs_3.csv")
 
@@ -15,6 +16,7 @@ counter_em = None
 counter_api= None
 coutner_admission = None
 counter_wait = None
+counter_gui = None
 
 def gen_emergency_service_logs():
     dimensione_blocco = 15
@@ -23,6 +25,8 @@ def gen_emergency_service_logs():
     column = [column for column in columns if "emergency-service" in column]
     column = column[0]
     logz= str(logs[column][0]).split("\n")
+    if ic(len(logz)) < 15:
+       yield str(logz)
     for i in range(1, len(logz)):
         yield logz[-i*(dimensione_blocco):-((i+1)*dimensione_blocco):-1]  #scorre la lista di 15 elementi in dietro ad ogni invocazione
 
@@ -47,6 +51,8 @@ def gen_api_gateway_logs():
     column = [column for column in columns if "api-gateway" in column]
     column = column[0]
     logz= str(logs[column][0]).split("\n")
+    if ic(len(logz)) < 15:
+      yield str(logz)
     for i in range(1, len(logz)):
         if i == 1:
             yield logz[-i:-((i+1)*dimensione_blocco):-1]
@@ -73,7 +79,7 @@ def gen_admission_manager_logs():
     column = [column for column in columns if "admission-manager" in column]
     column = column[0]
     logz= str(logs[column][0]).split("\n")
-    if len(logz) < 15:
+    if ic(len(logz)) < 15:
        yield str(logz)
     for i in range(1, len(logz)):
         if i == 1:
@@ -83,7 +89,7 @@ def gen_admission_manager_logs():
 
 @tool
 def check_admission_manager(input:str = "value") -> str:
-  "get api admission-manager as plain text, each time you call this function you get the previous 15 lines of log"
+  "get admission-manager logs as plain text, each time you call this function you get the previous 15 lines of log"
   global coutner_admission
   if coutner_admission == None :
      counter_admission = gen_admission_manager_logs()
@@ -111,10 +117,37 @@ def gen_wait_estimator_logs():
 
 @tool
 def check_wait_estimator(input:str = "value") -> str:
-  "get api wait-estimator as plain text, each time you call this function you get the previous 15 lines of log"
+  "get wait-estimator logs as plain text, each time you call this function you get the previous 15 lines of log"
+  global counter_gui
+  if counter_gui == None :
+     counter_gui = gen_admission_manager_logs()
+  try:
+    value = next(counter_gui)
+  except:
+     return "no more logs to check here"
+  return value
+
+def gen_gui_server_logs():
+    dimensione_blocco = 15
+    global logs
+    columns = logs.columns
+    column = [column for column in columns if "gui" in column]
+    column = column[0]
+    logz= str(logs[column][0]).split("\n")
+    if len(logz) < 15:
+       yield logz
+    for i in range(1, len(logz)):
+        if i == 1:
+            yield logz[-i:-((i+1)*dimensione_blocco):-1]
+        else:
+           yield logz[-i*(dimensione_blocco):-((i+1)*dimensione_blocco):-1]  #scorre la lista di 15 elementi in dietro ad ogni invocazione
+
+@tool
+def check_gui_server(input:str = "value") -> str:
+  "get gui-server logs as plain text, each time you call this function you get the previous 15 lines of log"
   global counter_wait
   if counter_wait == None :
-     counter_wait = gen_admission_manager_logs()
+     counter_wait = gen_gui_server_logs()
   try:
     value = next(counter_wait)
   except:
@@ -133,7 +166,8 @@ tools = function_names = [
   check_api_gateway,
   check_admission_manager,
   check_wait_estimator,
-  check_pod_status
+  check_pod_status,
+  check_gui_server
 ]
   
 system_description = """the whole system is on a kubernetes cluster.
@@ -144,14 +178,15 @@ Api-gateway manages authentication too.
 - Emergency service is where data about the staff and their reources are managed. This system is interrogated by admission manager to check if there are enough resources free to accept new patients to the ER.
 Users can communicate with emergency service to reserve resources in case a patient requires them, or to free those in case a patient leave the ER and they are not required anymore. All this data are stored in its database.
 - Wait estimator this component is responsible to compute estimated waiting time in the ER. It uses Emergency serivce data and queue of patients in ER (retrieved by admission-manager) to compute this times.
+- web app the users can interact with the server using a web app distributed trought a Node.js server on the gui pod.
 """
 
 
 prompt = hub.pull("hwchase17/react-chat")
 prompt.template = """
-You are a root cause analysis assistant called Sherlock, you goal is to help the user find the root causes of problems in his system. Use the tools the help yourself explore the system in search of the cause. Once you find the cause report it to the user as best
-as you can, do not suggest some possible solutions, just report the problem, no further details about what's not related to the problem the user is facing. 
-Don't rush, thoroughly investigate the system to fully understand the causes.
+You are a root cause analysis assistant called Sherlock, you goal is to help the user find the root causes of problems in his system. Use the tools the help yourself explore the system in search of the cause. 
+Once you find the cause report it to the user as best as you can, do not suggest some possible solutions, just report the problem, no further details about what's not related to the problem the user is facing. 
+Don't rush, thoroughly investigate the system to fully understand the root causes, for example if something isn't responding try to understand why, and so on.
 Start the investigation ONLY if directly requested by the user with a question about a problem in the system.
 
 System description:
@@ -181,36 +216,33 @@ New input: {input}
 """
 
 
-ic(prompt)
-if "GROQ_API_KEY" not in os.environ:
-    os.environ["GROQ_API_KEY"] = "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"
+with open("key.json", "r") as json_file:
+   llm = ChatGroq(
+      model="llama-3.2-90b-vision-preview",
+      temperature=0,
+      max_tokens=None,
+      timeout=None,
+      max_retries=2,
+      api_key=  json.load(json_file)["key"]
+   )
 
-llm = ChatGroq(
-    model="llama-3.2-90b-vision-preview",
-    temperature=0,
-    max_tokens=None,
-    timeout=None,
-    max_retries=2,
-    api_key= "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"
-)
+   agent = create_react_agent(llm, tools, prompt)
+   agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True, return_intermediate_steps= True, max_execution_time=1000)
 
-agent = create_react_agent(llm, tools, prompt)
-agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True, return_intermediate_steps= True, max_execution_time=1000)
+   message = input("write your message: ")
+   toSend = {"input":message, "chat_history":[],"agent_scratchpad":[]}
+   response = agent_executor.invoke(toSend)
 
-message = input("write your message: ")
-toSend = {"input":message, "chat_history":[],"agent_scratchpad":[]}
-response = agent_executor.invoke(toSend)
-
-## this transforms the single message into a continous chat
-while  ".." not in message:
-  toSend["chat_history"].append(f"human: {response["input"]}")
-  toSend["chat_history"].append(f"Assistant: {response["output"]}")
-  toSend["agent_scratchpad"].append(response["intermediate_steps"])
-  message = input("write your message: ")
-  if ".." in message:
-     break
-  toSend["input"]=message
-  response = agent_executor.invoke(toSend)
+   ## this transforms the single message into a continous chat
+   while  ".." not in message:
+      toSend["chat_history"].append(f"human: {response["input"]}")
+      toSend["chat_history"].append(f"Assistant: {response["output"]}")
+      toSend["agent_scratchpad"].append(response["intermediate_steps"])
+      message = input("write your message: ")
+      if ".." in message:
+         break
+      toSend["input"]=message
+      response = agent_executor.invoke(toSend)
 
 
 

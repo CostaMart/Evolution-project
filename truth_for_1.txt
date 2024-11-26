@@ -1,0 +1,1 @@
+The Admission Manager app attempted to send a request to either the Estimator or the Resource Manager, but one of these services failed. As a result, the Admission Manager was unable to create the patient admission. Service manager wasn't able to retrieve total patients count in emergency room

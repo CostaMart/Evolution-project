@@ -1,0 +1,7 @@
+/datasets
+/mlartifacts
+/mlruns
+/__pycache__
+/.git
+/.venv
+*.csv
